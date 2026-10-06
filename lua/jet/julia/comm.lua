@@ -10,7 +10,7 @@ local M = {}
 ---@param method string
 ---@param params? table
 ---@param callback? fun(result: any)
-M.rpc_request = function(kernel, comm_id, method, params, callback)
+M.rpc_request = function(kernel, comm_id, method, params, callback, on_error)
 	local msg_id = kernel:comm_send(comm_id, {
 		jsonrpc = "2.0",
 		id = vim.fn.rand(),
@@ -28,6 +28,7 @@ M.rpc_request = function(kernel, comm_id, method, params, callback)
 		kernel.hooks.on_message_received[msg_id] = nil
 
 		if data.error then
+			if on_error then on_error(data.error) end
 			vim.notify(
 				string.format("jet.julia: '%s' failed: %s", method, vim.inspect(data.error)),
 				vim.log.levels.ERROR

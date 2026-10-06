@@ -266,6 +266,10 @@ function Vars:set_keymaps()
 	local map = function(modes, lhs, fn) vim.keymap.set(modes, lhs, fn, { buffer = self.buf, silent = true }) end
 
 	map("n", "q", "<cmd>q<cr>")
+	map("n", "v", function()
+		local var = self:current_var()
+		if var then require("jet.julia.view").open(self.kernel, var.path) end
+	end)
 
 	map("n", "<enter>", function()
 		local var = self:current_var()

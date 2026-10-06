@@ -9,6 +9,17 @@ local with_julia_kernel = function(callback)
 	}, callback)
 end
 
+M.open_view = function(name)
+	local path = vim.split(name, ".", { plain = true })
+	for _, part in ipairs(path) do
+		if part == "" then
+			vim.notify("jet.julia: provide a variable name, e.g. :JuliaView df", vim.log.levels.WARN)
+			return
+		end
+	end
+	with_julia_kernel(function(k) require("jet.julia.view").open(k, path) end)
+end
+
 M.open_vars = function()
 	with_julia_kernel(function(k)
 		if k.bufs.vars then
@@ -25,6 +36,10 @@ M.setup = function(opts)
 	assert(jet.did_setup(), 'jet.nvim has not done setup; run `require("jet").setup({})` before loading jet.julia')
 
 	require("jet.julia.config").set(opts)
+
+	vim.api.nvim_create_user_command("JuliaView", function(args)
+		M.open_view(args.args ~= "" and args.args or vim.fn.expand("<cword>"))
+	end, { nargs = "?", desc = "View a Julia table (variable or dotted path)" })
 
 	local JuliaKernel = require("jet.julia.kernel")
 

@@ -25,6 +25,7 @@ end
 
 include("variables.jl")
 include("protocol.jl")
+include("viewer.jl")
 include("comm.jl")
 include("completion.jl")
 include("columns.jl")
