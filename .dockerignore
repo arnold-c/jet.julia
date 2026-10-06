@@ -1,0 +1,17 @@
+# BEGIN pi-sbx: sensitive build-context exclusions
+# Build-time only: these rules do not filter sandbox workspace mounts.
+**/env/
+**/data/
+**/.env
+**/.env.*
+.ref/
+.jj/
+.git/
+# END pi-sbx: sensitive build-context exclusions
+# BEGIN pi-sbx: sensitive build-context exclusions
+# Build-time only: these rules do not filter sandbox workspace mounts.
+**/env/
+**/data/
+**/.env
+**/.env.*
+# END pi-sbx: sensitive build-context exclusions
