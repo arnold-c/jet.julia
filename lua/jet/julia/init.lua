@@ -39,7 +39,7 @@ M.setup = function(opts)
 
 	vim.api.nvim_create_user_command("JuliaView", function(args)
 		M.open_view(args.args ~= "" and args.args or vim.fn.expand("<cword>"))
-	end, { nargs = "?", desc = "View a Julia table (variable or dotted path)" })
+	end, { nargs = "?", desc = "View a Julia table or 1D–3D array (variable or dotted path)" })
 
 	local JuliaKernel = require("jet.julia.kernel")
 

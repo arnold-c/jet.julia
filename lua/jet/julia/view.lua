@@ -13,7 +13,25 @@ local fit = function(text, width)
 	return text .. string.rep(" ", math.max(0, width - vim.fn.strdisplaywidth(text)))
 end
 
--- A grid shared by table pages; later matrix slices can use the same renderer.
+-- Keep large third axes bounded too: show tabs around the selected slice.
+local slice_tabs = function(page)
+	if not page.shape or #page.shape ~= 3 then return "", {} end
+	if page.slice_count == 0 then return "(no third-axis slices)", {} end
+	local first = math.max(page.slice_first, math.min(page.slice - 4, page.slice_last - 8))
+	local last = math.min(page.slice_last, first + 8)
+	local text = first > page.slice_first and "… " or ""
+	local tabs = {}
+	for k = first, last do
+		local label = k == page.slice and string.format("[ k=%d ]", k) or string.format("  k=%d  ", k)
+		local start = vim.fn.strdisplaywidth(text)
+		text = text .. label
+		table.insert(tabs, { first = start, last = vim.fn.strdisplaywidth(text), slice = k })
+	end
+	if last < page.slice_last then text = text .. " …" end
+	return text, tabs
+end
+
+-- Tables, vectors, matrices and array slices share one grid.
 local render = function(page, title)
 	local widths = {}
 	for i, name in ipairs(page.names) do
@@ -23,6 +41,9 @@ local render = function(page, title)
 		end
 	end
 	local number_width = math.max(3, #tostring(page.total_rows))
+	for _, label in ipairs(page.row_labels) do
+		number_width = math.max(number_width, vim.fn.strdisplaywidth(label))
+	end
 	local line = function(cells, label)
 		local parts = { fit(label, number_width) }
 		for i, cell in ipairs(cells) do
@@ -31,18 +52,20 @@ local render = function(page, title)
 		return table.concat(parts, " │ ")
 	end
 	local first = #page.rows > 0 and page.offset + 1 or 0
+	local tab_line, tabs = slice_tabs(page)
+	local shape = page.shape and (" [" .. table.concat(page.shape, " × ") .. "]") or ""
 	local lines = {
-		string.format("%s — rows %d–%d of %d, %d columns%s", title, first, page.offset + #page.rows,
+		string.format("%s%s — rows %d–%d of %d, %d columns%s", title, shape, first, page.offset + #page.rows,
 			page.total_rows, page.total_columns, page.columns_truncated and " (first 100 shown)" or ""),
-		"]p next page   [p previous page   r refresh   q close",
-		"",
+		"]p/[p page   Tab/S-Tab slice   r refresh   q close",
+		tab_line,
 		line(page.names, "#"),
 		line(page.types, ""),
 	}
 	for i, row in ipairs(page.rows) do
-		table.insert(lines, line(row, tostring(page.offset + i)))
+		table.insert(lines, line(row, page.row_labels[i]))
 	end
-	return lines
+	return lines, tabs
 end
 
 M.open = function(kernel, path)
@@ -52,14 +75,20 @@ M.open = function(kernel, path)
 		return
 	end
 	local title = table.concat(path, ".")
-	local buf, offset, total, busy
+	local buf, offset, total, busy, slice, slice_first, slice_last
+	local tabs = {}
 	offset, total, busy = 0, 0, false
 	local load
-	load = function(next_offset)
+	local change_slice = function(direction)
+		if slice and slice + direction >= slice_first and slice + direction <= slice_last then
+			load(0, slice + direction)
+		end
+	end
+	load = function(next_offset, next_slice)
 		if busy then return end
 		busy = true
-		require("jet.julia.comm").rpc_request(kernel, vars.comm_id, "table_page",
-			{ path = path, offset = next_offset, limit = PAGE_SIZE }, function(page)
+		require("jet.julia.comm").rpc_request(kernel, vars.comm_id, "viewer_page",
+			{ path = path, offset = next_offset, limit = PAGE_SIZE, slice = next_slice or slice }, function(page)
 				vim.schedule(function()
 					busy = false
 					if buf and not vim.api.nvim_buf_is_valid(buf) then return end
@@ -73,15 +102,39 @@ M.open = function(kernel, path)
 						vim.wo.wrap = false
 						vim.wo.number = false
 						vim.wo.relativenumber = false
+						vim.wo.signcolumn = "no"
+						vim.wo.foldcolumn = "0"
 						local map = function(key, fn) vim.keymap.set("n", key, fn, { buffer = buf, silent = true }) end
 						map("q", "<cmd>close<cr>")
 						map("r", function() load(offset) end)
 						map("]p", function() if offset + PAGE_SIZE < total then load(offset + PAGE_SIZE) end end)
 						map("[p", function() load(math.max(0, offset - PAGE_SIZE)) end)
+						map("<Tab>", function() change_slice(1) end)
+						map("<S-Tab>", function() change_slice(-1) end)
+						map("]s", function() change_slice(1) end)
+						map("[s", function() change_slice(-1) end)
+						map("<LeftMouse>", function()
+							local mouse = vim.fn.getmousepos()
+							if mouse.winid == 0 or vim.api.nvim_win_get_buf(mouse.winid) ~= buf then return end
+							vim.api.nvim_set_current_win(mouse.winid)
+							if mouse.line == 3 then
+								local left = vim.fn.winsaveview().leftcol
+								local column = mouse.wincol - 1 + left
+								for _, tab in ipairs(tabs) do
+									if column >= tab.first and column < tab.last then load(0, tab.slice); return end
+								end
+							elseif mouse.line > 0 then
+								vim.api.nvim_win_set_cursor(mouse.winid, { mouse.line, math.max(0, mouse.column - 1) })
+							end
+						end)
 					end
 					offset, total = page.offset, page.total_rows
+					slice = type(page.slice) == "number" and page.slice or nil
+					slice_first, slice_last = page.slice_first, page.slice_last
+					local lines
+					lines, tabs = render(page, title)
 					vim.bo[buf].modifiable = true
-					vim.api.nvim_buf_set_lines(buf, 0, -1, false, render(page, title))
+					vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 					vim.bo[buf].modifiable = false
 				end)
 			end, function() busy = false end)
