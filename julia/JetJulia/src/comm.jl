@@ -98,13 +98,15 @@ end
 """
     start()
 
-Register the variables comm target and the post-execute hook, and fix
-completion after multi-line strings (see `fix_completion!`). Idempotent.
+Register the variables comm target and the post-execute hook, and improve
+completion: after multi-line strings (`fix_completion!`) and for table
+columns (`install_column_completion!`). Idempotent.
 """
 function start()
     STARTED[] && return nothing
     IJulia.push_postexecute_hook(on_post_execute)
     fix_completion!()
+    install_column_completion!()
     STARTED[] = true
     return nothing
 end
