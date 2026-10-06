@@ -8,22 +8,42 @@ JuliaKernel.__index = JuliaKernel ---@private
 ---@class (partial) jet.Kernel.Buffers
 ---@field vars julia.Vars
 
----Load Positron.jl in the kernel, then open the variables comm.
+---The Julia code which makes the kernel serve the `positron.variables` comm,
+---for the configured backend.
+---@return string?
+local variables_code = function()
+	local bootstrap = require("jet.julia.bootstrap")
+
+	if config.options.variables == "positron" then
+		if not config.options.positron_path then
+			vim.notify("jet.julia: set `positron_path` to use the Positron.jl backend", vim.log.levels.WARN)
+			return
+		end
+		return bootstrap.positron_code(config.options.positron_path)
+	end
+
+	local dir = vim.api.nvim_get_runtime_file("julia/JetJulia", false)[1]
+	if not dir then
+		vim.notify("jet.julia: could not find julia/JetJulia on the runtimepath", vim.log.levels.ERROR)
+		return
+	end
+	return bootstrap.jetjulia_code(dir)
+end
+
+---Load the variables backend in the kernel, then open the variables comm.
 ---
----The comm must be opened only after Positron has registered its comm
----targets; otherwise IJulia closes it.
+---The comm must be opened only after the backend has registered its comm
+---target; otherwise IJulia closes it.
 ---@param kernel julia.Kernel
 local start_variables = function(kernel)
-	local positron_path = config.options.positron_path
-	if not positron_path then
-		vim.notify("jet.julia: set `positron_path` to enable the variables pane", vim.log.levels.WARN)
+	local code = variables_code()
+	if not code then
 		return
 	end
 
-	local bootstrap = require("jet.julia.bootstrap")
-	bootstrap.run(kernel, bootstrap.positron_code(positron_path), function(ok, err)
+	require("jet.julia.bootstrap").run(kernel, code, function(ok, err)
 		if not ok then
-			vim.notify("jet.julia: failed to load Positron.jl: " .. tostring(err), vim.log.levels.ERROR)
+			vim.notify("jet.julia: failed to start the variables backend: " .. tostring(err), vim.log.levels.ERROR)
 			return
 		end
 		vim.schedule(function() kernel.bufs.vars = require("jet.julia.vars").init(kernel) end)

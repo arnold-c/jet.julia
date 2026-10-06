@@ -6,6 +6,23 @@ local M = {}
 ---@return string # A Julia string literal
 local julia_string = function(s) return (vim.json.encode(s):gsub("%$", "\\$")) end
 
+---Julia code which loads JetJulia into the kernel's `Main` and registers its
+---comm target.
+---
+---The source is `include`d, not loaded as a package, so it works from any
+---project and adds nothing to the user's environment. The statements are
+---separate so each runs in the world age created by the previous one.
+---
+---@param jetjulia_dir string The `julia/JetJulia` directory of this plugin
+---@return string
+M.jetjulia_code = function(jetjulia_dir)
+	return table.concat({
+		"isdefined(Main, :JetJulia) || Base.include(Main, " .. julia_string(jetjulia_dir .. "/src/JetJulia.jl") .. ")",
+		"Main.JetJulia.start()",
+		"nothing",
+	}, "\n")
+end
+
 ---Julia code which loads Positron.jl and starts its services.
 ---
 ---The path is `push!`ed (not `pushfirst!`ed) onto `LOAD_PATH` so versions
