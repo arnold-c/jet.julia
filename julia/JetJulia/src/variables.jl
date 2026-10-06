@@ -119,13 +119,37 @@ function display_value(x::AbstractString)
     return ellipsize(repr(shown))
 end
 
-function display_type(x)
-    dims = table_dims(x)
-    dims === nothing || return "$(nameof(typeof(x))) [$(dims[1]) x $(dims[2])]"
-    return string(typeof(x))
+# The type column is narrow, so types are shown compactly: the type's name
+# (with parameters if short), then the shape in brackets: `Vector{Int64} [3]`,
+# `Matrix{Float64} [3, 4]`, `DataFrame [10, 3]`. The full type is in `type_info`.
+
+const MAX_TYPE_LABEL = 30
+
+"The type of `x`, without parameters if they would make it long."
+function type_label(x)
+    T = typeof(x)
+    s = string(T)
+    return length(s) <= MAX_TYPE_LABEL ? s : string(nameof(T))
 end
-display_type(x::AbstractArray) = string(typeof(x))
-display_type(x::AbstractDict) = string(typeof(x))
+
+shape_label(dims) = "[" * join(dims, ", ") * "]"
+
+"`Name [rows, cols]` for tables, otherwise `nothing`."
+function table_label(x)
+    dims = table_dims(x)
+    return dims === nothing ? nothing : "$(nameof(typeof(x))) $(shape_label(dims))"
+end
+
+display_type(x) = something(table_label(x), type_label(x))
+display_type(::Function) = "Function"
+display_type(x::AbstractDict) = "$(type_label(x)) $(shape_label((length(x),)))"
+display_type(x::Union{Tuple, NamedTuple}) = something(
+    table_label(x),
+    "$(type_label(x)) $(shape_label((length(x),)))",
+)
+function display_type(x::AbstractArray)
+    return ndims(x) == 0 ? type_label(x) : "$(type_label(x)) $(shape_label(size(x)))"
+end
 
 "The number of elements: rows for tables, the first dimension for arrays."
 function length_of(x)
@@ -348,6 +372,28 @@ end
     @test JetJulia.display_value(1:5) == "1:5"
 end
 
+@testitem "display_type is compact and shows the shape" begin
+    @test JetJulia.display_type(1) == "Int64"
+    @test JetJulia.display_type("s") == "String"
+    @test JetJulia.display_type(sin) == "Function"
+    @test JetJulia.display_type(Int) == "DataType"
+    @test JetJulia.display_type([1, 2, 3]) == "Vector{Int64} [3]"
+    @test JetJulia.display_type(ones(3, 4)) == "Matrix{Float64} [3, 4]"
+    @test JetJulia.display_type(Int[]) == "Vector{Int64} [0]"
+    @test JetJulia.display_type(fill(1)) == "Array{Int64, 0}"
+    @test JetJulia.display_type(Dict(:a => 1)) == "Dict{Symbol, Int64} [1]"
+    @test JetJulia.display_type((1, 2)) == "Tuple{Int64, Int64} [2]"
+
+    # Long parameter lists fall back to the bare name
+    @test JetJulia.display_type((x = 30, a = "testing")) == "NamedTuple [2]"
+    long = Dict("a" => (1, 2, 3))
+    @test JetJulia.display_type(long) == "Dict [1]"
+
+    # The full type is still available
+    @test JetJulia.variable("q", (x = 30, a = "testing"))["type_info"] ==
+        "@NamedTuple{x::Int64, a::String}"
+end
+
 @testitem "length_of and n_children" begin
     @test JetJulia.length_of([1, 2, 3]) == 3
     @test JetJulia.length_of(ones(4, 2)) == 4
@@ -394,7 +440,7 @@ end
     t = (a = [1, 2, 3], b = ["x", "y", "z"])
     @test JetJulia.kind(t) == "table"
     @test JetJulia.display_value(t) == "[3 rows x 2 columns] NamedTuple"
-    @test JetJulia.display_type(t) == "NamedTuple [3 x 2]"
+    @test JetJulia.display_type(t) == "NamedTuple [3, 2]"
     @test JetJulia.length_of(t) == 3
     @test JetJulia.n_children(t) == 2
     @test JetJulia.children(t) == ["a" => [1, 2, 3], "b" => ["x", "y", "z"]]
@@ -407,7 +453,8 @@ end
     @test v["access_key"] == "xs"
     @test v["display_name"] == "xs"
     @test v["display_value"] == "[1, 2, 3]"
-    @test v["display_type"] == "Vector{Int64}"
+    @test v["display_type"] == "Vector{Int64} [3]"
+    @test v["type_info"] == "Vector{Int64}"
     @test v["kind"] == "collection"
     @test v["length"] == 3
     @test v["has_children"] === true
