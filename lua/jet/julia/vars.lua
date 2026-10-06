@@ -350,11 +350,20 @@ function Vars:redraw()
 	end
 end
 
+-- Byte escapes, so the Nerd Font glyphs cannot be lost when editing the file
 local icons = {
-	caret_right = "",
-	caret_down = "",
-	ellipsis = "…",
+	caret_right = "\xef\x83\x9a", -- U+F0DA nf-fa-caret_right
+	caret_down = "\xef\x83\x97", -- U+F0D7 nf-fa-caret_down
+	ellipsis = "\xe2\x80\xa6", -- U+2026 …
 }
+
+---The caret for a variable, padded so every row's caret is one cell wide.
+---@param v julia.flat_var
+---@return string
+local caret_for = function(v)
+	local caret = not v.has_children and "" or v.expanded and icons.caret_down or icons.caret_right
+	return caret .. string.rep(" ", math.max(1 - vim.fn.strwidth(caret), 0))
+end
 
 ---@alias julia.extmark_args [ integer, vim.api.keyset.set_extmark ]
 
@@ -503,7 +512,7 @@ function Vars:render()
 			table.insert(marks, { { 0, { hl_group = "JuliaVarsCategory", end_col = #v } } })
 		else
 			local indent = string.rep(" ", v.indent)
-			local caret = (not v.has_children) and " " or v.expanded and icons.caret_down or icons.caret_right
+			local caret = caret_for(v)
 			local prefix = indent .. caret .. " "
 
 			local name_col, name = fit(v.display_name, math.max(name_w - v.indent, 1))
