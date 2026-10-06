@@ -26,6 +26,7 @@ end
 include("variables.jl")
 include("protocol.jl")
 include("comm.jl")
+include("completion.jl")
 
 @testitem "the source can be included into a kernel's Main" begin
     using IJulia
