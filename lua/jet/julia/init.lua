@@ -1,9 +1,30 @@
 local M = {}
 
----@param opts? table Currently unused; reserved for later milestones.
+---Run `callback` with the connected Julia kernel.
+---@param callback fun(k: julia.Kernel)
+local with_julia_kernel = function(callback)
+	require("jet.api").get_kernel({
+		status = "connected",
+		predicate = function(k) return k.subclass == "julia" end,
+	}, callback)
+end
+
+M.open_vars = function()
+	with_julia_kernel(function(k)
+		if k.bufs.vars then
+			k.bufs.vars:open()
+		else
+			vim.notify("jet.julia: variables pane is not available for this kernel", vim.log.levels.WARN)
+		end
+	end)
+end
+
+---@param opts? jet.julia.Config
 M.setup = function(opts)
 	local jet = require("jet")
 	assert(jet.did_setup(), 'jet.nvim has not done setup; run `require("jet").setup({})` before loading jet.julia')
+
+	require("jet.julia.config").set(opts)
 
 	local JuliaKernel = require("jet.julia.kernel")
 
@@ -18,6 +39,12 @@ M.setup = function(opts)
 		"JetJuliaConnect",
 		function() require("jet.julia.connect").connect() end,
 		{ nargs = 0, desc = "Attach to an external jet Julia session" }
+	)
+
+	vim.api.nvim_create_user_command(
+		"JuliaVars",
+		function() M.open_vars() end,
+		{ nargs = 0, desc = "Open the Julia variables pane" }
 	)
 end
 
