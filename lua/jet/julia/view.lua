@@ -2,6 +2,33 @@ local M = {}
 local PAGE_SIZE = 100
 local MAX_WIDTH = 40
 
+local actions = {
+	{ "next_page", "next page" },
+	{ "previous_page", "previous page" },
+	{ "scroll_right", "scroll right" },
+	{ "scroll_left", "scroll left" },
+	{ "next_slice", "next slice" },
+	{ "previous_slice", "previous slice" },
+	{ "refresh", "refresh" },
+	{ "close", "close" },
+	{ "select_slice", "select slice tab" },
+}
+
+local keys_for = function(keymaps, action)
+	local keys = keymaps and keymaps[action]
+	if not keys then return {} end
+	return type(keys) == "string" and { keys } or keys
+end
+
+local keymap_help = function(keymaps)
+	local parts = {}
+	for _, action in ipairs(actions) do
+		local keys = keys_for(keymaps, action[1])
+		if #keys > 0 then table.insert(parts, table.concat(keys, "/") .. " " .. action[2]) end
+	end
+	return table.concat(parts, "   ")
+end
+
 local fit = function(text, width)
 	if vim.fn.strdisplaywidth(text) > width then
 		local n = vim.fn.strchars(text)
@@ -32,7 +59,7 @@ local slice_tabs = function(page)
 end
 
 -- Tables, vectors, matrices and array slices share one grid.
-local render = function(page, title)
+local render = function(page, title, help)
 	local widths = {}
 	for i, name in ipairs(page.names) do
 		widths[i] = math.min(MAX_WIDTH, math.max(vim.fn.strdisplaywidth(name), vim.fn.strdisplaywidth(page.types[i])))
@@ -57,7 +84,7 @@ local render = function(page, title)
 	local lines = {
 		string.format("%s%s — rows %d–%d of %d, %d columns%s", title, shape, first, page.offset + #page.rows,
 			page.total_rows, page.total_columns, page.columns_truncated and " (first 100 shown)" or ""),
-		"]p/[p page   Tab/S-Tab slice   r refresh   q close",
+		help,
 		tab_line,
 		line(page.names, "#"),
 		line(page.types, ""),
@@ -74,6 +101,10 @@ M.open = function(kernel, path)
 		vim.notify("jet.julia: variables comm is not ready", vim.log.levels.WARN)
 		return
 	end
+	-- Snapshot bindings so the help and installed maps stay consistent if setup
+	-- is called again while this viewer is open.
+	local keymaps = vim.deepcopy(require("jet.julia.config").options.viewer.keymaps)
+	local help = keymap_help(keymaps)
 	local title = table.concat(path, ".")
 	local buf, offset, total, busy, slice, slice_first, slice_last
 	local tabs = {}
@@ -104,16 +135,17 @@ M.open = function(kernel, path)
 						vim.wo.relativenumber = false
 						vim.wo.signcolumn = "no"
 						vim.wo.foldcolumn = "0"
-						local map = function(key, fn) vim.keymap.set("n", key, fn, { buffer = buf, silent = true }) end
-						map("q", "<cmd>close<cr>")
-						map("r", function() load(offset) end)
-						map("]p", function() if offset + PAGE_SIZE < total then load(offset + PAGE_SIZE) end end)
-						map("[p", function() load(math.max(0, offset - PAGE_SIZE)) end)
-						map("<Tab>", function() change_slice(1) end)
-						map("<S-Tab>", function() change_slice(-1) end)
-						map("]s", function() change_slice(1) end)
-						map("[s", function() change_slice(-1) end)
-						map("<LeftMouse>", function()
+						local handlers = {
+							close = "<cmd>close<cr>",
+							refresh = function() load(offset) end,
+							next_page = function() if offset + PAGE_SIZE < total then load(offset + PAGE_SIZE) end end,
+							previous_page = function() load(math.max(0, offset - PAGE_SIZE)) end,
+							scroll_right = "zL",
+							scroll_left = "zH",
+							next_slice = function() change_slice(1) end,
+							previous_slice = function() change_slice(-1) end,
+						}
+						handlers.select_slice = function()
 							local mouse = vim.fn.getmousepos()
 							if mouse.winid == 0 or vim.api.nvim_win_get_buf(mouse.winid) ~= buf then return end
 							vim.api.nvim_set_current_win(mouse.winid)
@@ -126,13 +158,20 @@ M.open = function(kernel, path)
 							elseif mouse.line > 0 then
 								vim.api.nvim_win_set_cursor(mouse.winid, { mouse.line, math.max(0, mouse.column - 1) })
 							end
-						end)
+						end
+						for _, action in ipairs(actions) do
+							for _, key in ipairs(keys_for(keymaps, action[1])) do
+								vim.keymap.set("n", key, handlers[action[1]], {
+									buffer = buf, silent = true, desc = "JuliaView: " .. action[2],
+								})
+							end
+						end
 					end
 					offset, total = page.offset, page.total_rows
 					slice = type(page.slice) == "number" and page.slice or nil
 					slice_first, slice_last = page.slice_first, page.slice_last
 					local lines
-					lines, tabs = render(page, title)
+					lines, tabs = render(page, title, help)
 					vim.bo[buf].modifiable = true
 					vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 					vim.bo[buf].modifiable = false
