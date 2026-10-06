@@ -247,6 +247,8 @@ end
 
 function Vars:open()
 	local win = buf.open(self, nil)
+	-- Columns are sized to the window; never wrap
+	vim.wo[win].wrap = false
 	self:list(function() self:redraw() end)
 	return win
 end
@@ -392,6 +394,39 @@ local flatten = function(var, path, level)
 	return flat
 end
 
+---Whether a top-level variable is hidden by the `exclude` option.
+---@param var julia.var
+---@return boolean
+local is_excluded = function(var)
+	local exclude = require("jet.julia.config").options.exclude
+	if type(exclude) == "function" then
+		return exclude(var) == true
+	end
+	return vim.tbl_contains(exclude or {}, var.access_key)
+end
+
+---Pad or truncate `s` to exactly `width` display cells.
+---@param s string
+---@param width integer
+---@param align? "left" | "right"
+---@return string padded
+---@return string text # `s`, truncated if needed (for highlight extents)
+local fit = function(s, width, align)
+	local w = vim.fn.strwidth(s)
+	if w > width then
+		s = width <= 1 and icons.ellipsis or vim.fn.strcharpart(s, 0, width - 1) .. icons.ellipsis
+		w = vim.fn.strwidth(s)
+	end
+	local pad = string.rep(" ", math.max(width - w, 0))
+	return align == "right" and pad .. s or s .. pad, s
+end
+
+-- Column widths as fractions of the window; the value gets the rest.
+local NAME_MAX_FRAC = 0.35
+local TYPE_MAX_FRAC = 0.3
+local MIN_COL = 8
+local SEP = "  "
+
 ---Flatten the (partially expanded) variable tree into display order.
 ---@return (julia.flat_var | string)[]
 function Vars:flatten()
@@ -400,7 +435,9 @@ function Vars:flatten()
 		categories[c] = {}
 	end
 	for _, var in ipairs(self.vars) do
-		table.insert(categories[category(var.kind)], var)
+		if not is_excluded(var) then
+			table.insert(categories[category(var.kind)], var)
+		end
 	end
 
 	local out = {}
@@ -445,15 +482,20 @@ function Vars:render()
 		return math.max(0, unpack(widths))
 	end
 
-	local name_max_width = var_max(function(v) return v.display_name_w + v.indent end)
-	local type_max_width = var_max(function(v) return v.display_type_w end)
-
-	local lines = {} ---@type string[]
-	local marks = {} ---@type julia.extmark_args[][]
-
 	local w = self:win()
 	local win = w and w:winnr(self.buf)
 	local win_width = win and vim.api.nvim_win_get_width(win) or math.floor(vim.o.columns / 2)
+
+	-- Cap the name and type columns so the line always fits the window; the
+	-- value column takes what is left. Overlong text is truncated, not wrapped.
+	local cap = function(max, frac) return math.min(max, math.max(MIN_COL, math.floor(win_width * frac))) end
+	local name_w = cap(var_max(function(v) return v.display_name_w + v.indent end), NAME_MAX_FRAC)
+	local type_w = cap(var_max(function(v) return v.display_type_w end), TYPE_MAX_FRAC)
+	-- 2 cells for caret + space before the name
+	local val_w = math.max(win_width - 2 - name_w - type_w - 2 * #SEP, MIN_COL)
+
+	local lines = {} ---@type string[]
+	local marks = {} ---@type julia.extmark_args[][]
 
 	for _, v in ipairs(self.vars_flat) do
 		if type(v) == "string" then
@@ -462,36 +504,24 @@ function Vars:render()
 		else
 			local indent = string.rep(" ", v.indent)
 			local caret = (not v.has_children) and " " or v.expanded and icons.caret_down or icons.caret_right
-			local name = v.display_name
-			local name_pad = string.rep(" ", name_max_width - v.display_name_w - v.indent)
-			local val = v.display_value
-			local vtype = v.display_type
-			local type_pad = string.rep(" ", type_max_width - v.display_type_w)
+			local prefix = indent .. caret .. " "
 
-			local name_col = indent .. caret .. " " .. name .. name_pad
-			local type_col = type_pad .. vtype
+			local name_col, name = fit(v.display_name, math.max(name_w - v.indent, 1))
+			local val_col, val = fit(v.display_value, val_w)
+			local type_col, vtype = fit(v.display_type, type_w, "right")
 
-			-- The value takes whatever width remains in the window
-			local name_and_type_width = vim.fn.strwidth(name_col .. type_col) + 4
-			local available_val_width = math.max(win_width - name_and_type_width, 10)
+			local line = prefix .. name_col .. SEP .. val_col .. SEP .. type_col
+			table.insert(lines, line)
 
-			local val_n_pad = available_val_width - v.display_value_w
-			local val_pad = val_n_pad <= 0 and "" or string.rep(" ", val_n_pad)
-			local val_trunc = val_n_pad >= 0 and val
-				or vim.fn.strcharpart(val, 0, v.display_value_w + val_n_pad - 1) .. icons.ellipsis
-			local val_col = val_trunc .. val_pad
-
-			table.insert(lines, name_col .. "  " .. val_col .. "  " .. type_col)
-
-			local name_start = v.indent + #caret + 1
-			local val_start = #name_col + 2
-			local type_start = #(name_col .. "  " .. val_col .. "  " .. type_pad)
+			local name_start = #prefix
+			local val_start = name_start + #name_col + #SEP
+			local type_end = #line
 
 			table.insert(marks, {
 				{ v.indent, { hl_group = "JuliaVarsIndent", end_col = v.indent + #caret } },
 				{ name_start, { hl_group = "JuliaVarsName", end_col = name_start + #name } },
-				{ val_start, { hl_group = "JuliaVarsValue", end_col = val_start + #val_trunc } },
-				{ type_start, { hl_group = "JuliaVarsType", end_col = type_start + #vtype } },
+				{ val_start, { hl_group = "JuliaVarsValue", end_col = val_start + #val } },
+				{ type_end - #vtype, { hl_group = "JuliaVarsType", end_col = type_end } },
 			})
 		end
 	end

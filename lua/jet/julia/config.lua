@@ -3,6 +3,10 @@
 ---`Pkg.instantiate()` already run in it). Required for the variables pane
 ---while it is backed by Positron.jl.
 ---@field positron_path? string
+---Top-level variables to hide from the variables pane: a list of names, or a
+---predicate receiving the variable (`access_key`, `display_type`, `kind`, ...).
+---Positron.jl already hides names starting with `_` or `#`.
+---@field exclude? string[] | fun(var: table): boolean
 
 local M = {}
 
