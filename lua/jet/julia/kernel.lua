@@ -5,7 +5,6 @@
 -- Modified: Julia detection and deferred backend bootstrap; no Ark services.
 
 local Kernel = require("jet.core.kernel")
-local config = require("jet.julia.config")
 
 ---@class julia.Kernel : jet.Kernel
 local JuliaKernel = setmetatable({}, { __index = Kernel })
@@ -14,19 +13,10 @@ JuliaKernel.__index = JuliaKernel ---@private
 ---@class (partial) jet.Kernel.Buffers
 ---@field vars julia.Vars
 
----The Julia code which makes the kernel serve the `positron.variables` comm,
----for the configured backend.
+---Julia code which loads the bundled JetJulia service for the variables comm.
 ---@return string?
 local variables_code = function()
 	local bootstrap = require("jet.julia.bootstrap")
-
-	if config.options.variables == "positron" then
-		if not config.options.positron_path then
-			vim.notify("jet.julia: set `positron_path` to use the Positron.jl backend", vim.log.levels.WARN)
-			return
-		end
-		return bootstrap.positron_code(config.options.positron_path)
-	end
 
 	local dir = vim.api.nvim_get_runtime_file("julia/JetJulia", false)[1]
 	if not dir then
@@ -36,9 +26,9 @@ local variables_code = function()
 	return bootstrap.jetjulia_code(dir)
 end
 
----Load the variables backend in the kernel, then open the variables comm.
+---Load JetJulia in the kernel, then open the variables comm.
 ---
----The comm must be opened only after the backend has registered its comm
+---The comm must be opened only after JetJulia has registered its comm
 ---target; otherwise IJulia closes it.
 ---@param kernel julia.Kernel
 local start_variables = function(kernel)
@@ -49,7 +39,7 @@ local start_variables = function(kernel)
 
 	require("jet.julia.bootstrap").run(kernel, code, function(ok, err)
 		if not ok then
-			vim.notify("jet.julia: failed to start the variables backend: " .. tostring(err), vim.log.levels.ERROR)
+			vim.notify("jet.julia: failed to start JetJulia: " .. tostring(err), vim.log.levels.ERROR)
 			return
 		end
 		vim.schedule(function() kernel.bufs.vars = require("jet.julia.vars").init(kernel) end)

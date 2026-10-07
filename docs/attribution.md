@@ -1,9 +1,9 @@
 # Source attribution and third-party notices
 
 This inventory covers the Lua and Julia source shipped in this repository,
-including `tests/viewer.lua`. Source-level notices identify adaptations;
-license texts are retained in `LICENSES/`. These third-party notices do not
-assign a license to the repository's original code.
+including `tests/viewer.lua` and `tests/bootstrap.lua`. Source-level notices
+identify adaptations; license texts are retained in `LICENSES/`. These
+third-party notices do not assign a license to the repository's original code.
 
 The review compared the current code and local revision history with the
 upstream sources linked below. Upstream `main` links are reference locations,
@@ -73,9 +73,10 @@ They do not vendor Positron's generated request types, `PositronComm` wrapper,
 logging infrastructure or data explorer. Matching protocol names and message
 fields alone are not evidence of verbatim source copying.
 
-`bootstrap.lua` and `config.lua` additionally support **using** an external
-Positron.jl installation. The `using Positron`, `get_kernel()` and
-`start_services!()` calls are API integration, not bundled upstream source.
+JetJulia is the sole runtime service; no external Positron.jl backend is
+loaded. The `positron.variables` comm target and variable vocabulary remain
+in active use as the wire protocol. Removing the optional backend does not
+remove the provenance or license obligations of the adapted source.
 
 ## IJulia.jl — MIT
 
@@ -102,6 +103,7 @@ source copying.
 
 No copied upstream implementation was identified in `connect.lua`,
 `bootstrap.lua`, `config.lua`, `view.lua`, `tests/viewer.lua`,
+`tests/bootstrap.lua`,
 `julia/JetJulia/src/viewer.jl` or the module-loading/test macro in
 `julia/JetJulia/src/JetJulia.jl`. They integrate with the credited components;
 shared API names and standard Neovim/Julia idioms are not labelled as copied

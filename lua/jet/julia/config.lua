@@ -1,17 +1,8 @@
 ---@class jet.julia.Config
----What serves the variables pane: "jetjulia" (default; the `julia/JetJulia`
----code in this plugin, no extra packages) or "positron" (Positron.jl, which
----needs an instantiated checkout at `positron_path`; it is appended to
----LOAD_PATH, so installation in the user's project is not required).
----@field variables? "jetjulia" | "positron"
----Path to the `julia/Positron` directory of a positron-julia checkout (with
----`Pkg.instantiate()` already run in it). Only used when `variables` is
----"positron".
----@field positron_path? string
 ---Top-level variables to hide from the variables pane: a list of names, or a
 ---predicate receiving the variable (`access_key`, `display_type`, `kind`, ...)
 ---and returning true to hide it.
----Both backends already hide names starting with `_` or `#`.
+---JetJulia already hides names starting with `_` or `#`.
 ---Exclusion is client-side only and does not prevent lookup or deletion.
 ---@field exclude? string[] | fun(var: table): boolean
 ---@field viewer? jet.julia.ViewerConfig
@@ -35,7 +26,6 @@
 local M = {}
 
 local defaults = {
-	variables = "jetjulia",
 	viewer = {
 		keymaps = {
 			close = "q",
@@ -54,14 +44,11 @@ local defaults = {
 ---@type jet.julia.Config
 M.options = vim.deepcopy(defaults)
 
----Replace options by merging opts over fresh defaults; expand positron_path.
+---Replace options by merging opts over fresh defaults.
 ---Existing viewers retain the keymaps captured when they were opened.
 ---@param opts? jet.julia.Config
 M.set = function(opts)
 	M.options = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
-	if M.options.positron_path then
-		M.options.positron_path = vim.fn.expand(M.options.positron_path)
-	end
 end
 
 return M

@@ -7,8 +7,8 @@ local M = {}
 
 ---Send a JSON-RPC request over a comm and handle the reply.
 ---
----Replies are matched by `parent_header.msg_id`; Positron.jl parents each
----reply on the request message, as does JetJulia. Events (with a `method`)
+---Replies are matched by `parent_header.msg_id`; JetJulia parents each
+---reply on the request message. Events (with a `method`)
 ---are ignored. The listener is removed before invoking either callback.
 ---Callbacks run in the message handler; UI work should use vim.schedule.
 ---RPC errors notify even when on_error is provided. No timeout is installed.

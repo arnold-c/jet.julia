@@ -17,7 +17,7 @@ end
 
 ---View a variable or dotted access-key path in a connected Julia kernel.
 ---Reject empty path components; never evaluate arbitrary Julia expressions.
----Requires JetJulia's viewer_page extension (not the Positron.jl backend).
+---Uses the bundled JetJulia service's viewer_page extension.
 ---@param name string
 M.open_view = function(name)
 	local path = vim.split(name, ".", { plain = true })

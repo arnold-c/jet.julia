@@ -5,10 +5,9 @@ in the connected Julia kernel. Without an argument, it uses the word under
 the cursor. Dotted variable paths are supported, not arbitrary expressions.
 Press `v` on a variable in JuliaVars to open the same viewer.
 
-The viewer requires the default `variables = 'jetjulia'` backend. The optional
-Positron.jl backend does not implement JetJulia's `viewer_page` RPC; it can
-serve the variables pane but not this preview. Tables.jl must already be
-loaded in the kernel to recognise tables. Array previews do not require it.
+The viewer and variables pane use the bundled JetJulia service. Tables.jl
+must already be loaded in the kernel to recognise tables. Array previews do
+not require it.
 
 ## Keymaps
 
@@ -73,6 +72,9 @@ From the repository root, with Neovim installed:
 
 ```sh
 nvim --headless -u NONE -l tests/viewer.lua
+nvim --headless -u NONE -l tests/bootstrap.lua
 ```
 
-These mock the kernel comm; no Julia kernel or jet.nvim installation is needed.
+These mock kernel communication and startup; no Julia kernel or jet.nvim
+installation is needed. The bootstrap test checks that JetJulia is loaded
+before the variables pane is initialised.

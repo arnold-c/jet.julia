@@ -24,24 +24,6 @@ M.jetjulia_code = function(jetjulia_dir)
 	}, "\n")
 end
 
----Julia code which loads Positron.jl and starts its services.
----
----The path is `push!`ed (not `pushfirst!`ed) onto `LOAD_PATH` so versions
----from the user's project win over those in Positron's own environment.
----
----@param positron_path string
----@return string
-M.positron_code = function(positron_path)
-	return table.concat({
-		"let p = " .. julia_string(positron_path),
-		"    p in LOAD_PATH || push!(LOAD_PATH, p)",
-		"end",
-		"using Positron",
-		"Positron.get_kernel().started || Positron.start_services!()",
-		"nothing",
-	}, "\n")
-end
-
 ---Run `code` silently and report success or failure exactly once.
 ---
 ---An error message is remembered until `execute_reply` or `status: idle`.
