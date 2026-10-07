@@ -187,7 +187,8 @@ end
 
 ---Fetch children asynchronously, cache them and expand/redraw if the path still exists.
 ---@param path string[]
-function Vars:inspect(path)
+---@param cb? fun(var: julia.var) Called after children are cached
+function Vars:inspect(path, cb)
 	assert(#path > 0)
 	rpc(self.kernel, self.comm_id, "inspect", { path = path }, function(res)
 		local var = self:get_var(path)
@@ -195,6 +196,9 @@ function Vars:inspect(path)
 			var.children = res.children
 			var.expanded = true
 			self:redraw()
+			if cb then
+				cb(var)
+			end
 		end
 	end)
 end
@@ -259,6 +263,49 @@ function Vars:expand(path)
 	elseif var.has_children then
 		self:inspect(path)
 	end
+end
+
+local MAX_EXPAND_DEPTH = 8 -- guards against cyclic or very deep structures
+
+---Expand a node and, recursively, all of its descendants (fetching as needed).
+---@param path string[]
+---@param depth? integer
+function Vars:expand_all(path, depth)
+	depth = depth or 0
+	local var = self:get_var(path)
+	if not var or not var.has_children or depth >= MAX_EXPAND_DEPTH then
+		return
+	end
+	local descend = function(node)
+		for _, child in ipairs(node.children or {}) do
+			self:expand_all(vim.list_extend(vim.deepcopy(path), { child.access_key }), depth + 1)
+		end
+	end
+	var.expanded = true
+	if var.children then
+		self:redraw()
+		descend(var)
+	else
+		self:inspect(path, descend)
+	end
+end
+
+---Collapse a node and all cached descendants (inverse of `expand_all`), then redraw.
+---@param path string[]
+function Vars:collapse_all(path)
+	local var = self:get_var(path)
+	if not var then
+		return
+	end
+	local collapse
+	collapse = function(node)
+		node.expanded = false
+		for _, child in ipairs(node.children or {}) do
+			collapse(child)
+		end
+	end
+	collapse(var)
+	self:redraw()
 end
 
 ----------------------------------------------------------------------------
@@ -339,6 +386,31 @@ function Vars:set_keymaps()
 		end
 	end)
 
+	map("n", "<leader>>", function()
+		local var = self:current_var()
+		if var then
+			self:expand_all(var.path)
+		end
+	end)
+
+	-- Collapse every level: the top-level ancestor and all its descendants
+	map("n", "<leader><", function()
+		local var = self:current_var()
+		if not var then
+			return
+		end
+		local path = { var.path[1] }
+		self:collapse_all(path)
+		for line, line_var in ipairs(self.vars_flat) do
+			if type(line_var) == "table" and vim.deep_equal(line_var.path, path) then
+				vim.api.nvim_win_set_cursor(0, { line, 0 })
+				return
+			end
+		end
+	end)
+
+	map("n", "g?", function() self:show_help() end)
+
 	map("n", "<", function()
 		local var = self:current_var()
 		if not var then
@@ -367,6 +439,45 @@ function Vars:set_keymaps()
 	end)
 
 	map("n", "X", function() self:clear(true) end)
+end
+
+---Show the available shortcuts in a floating window.
+function Vars:show_help()
+	local lines = {
+		" Variable viewer shortcuts",
+		"",
+		" <enter>     toggle expand/collapse",
+		" >           expand",
+		" <leader>>   expand all levels recursively",
+		" <           collapse (or go to parent)",
+		" <leader><   collapse all levels up to the top-level variable",
+		" ]] / [[     next / previous top-level variable",
+		" v           open in viewer",
+		" <leader>y   yank value",
+		" <leader>d   delete variable",
+		" X           clear all variables",
+		" g?          show this help",
+		" q           close",
+	}
+	local width = 0
+	for _, l in ipairs(lines) do
+		width = math.max(width, vim.fn.strwidth(l) + 1)
+	end
+	local hbuf = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(hbuf, 0, -1, false, lines)
+	vim.bo[hbuf].modifiable = false
+	local win = vim.api.nvim_open_win(hbuf, true, {
+		relative = "editor",
+		width = width,
+		height = #lines,
+		row = math.max(0, math.floor((vim.o.lines - #lines) / 2)),
+		col = math.max(0, math.floor((vim.o.columns - width) / 2)),
+		style = "minimal",
+		border = "rounded",
+	})
+	for _, key in ipairs({ "q", "<esc>", "<cr>", "g?" }) do
+		vim.keymap.set("n", key, function() pcall(vim.api.nvim_win_close, win, true) end, { buffer = hbuf, silent = true })
+	end
 end
 
 ---Replace buffer lines and session-namespace highlights from the current cached tree.

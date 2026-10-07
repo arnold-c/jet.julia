@@ -229,6 +229,9 @@ These mappings are buffer-local and are not controlled by `viewer.keymaps`:
 | `q` | Close the pane. |
 | `<Enter>` | Toggle the current variable's expansion. |
 | `>` / `<` | Expand / collapse, or collapse the parent. |
+| `<leader>>` | Expand the current variable and all descendants recursively (depth capped at 8). |
+| `<leader><` | Collapse the current row's top-level variable and all its descendants. |
+| `g?` | Show the available shortcuts in a floating window. |
 | `]]` / `[[` | Move to the next / previous top-level variable. |
 | `v` | Open the current value in JuliaView. |
 | `<leader>y` | Copy the value's plain-text representation to the selected register. |
