@@ -5,6 +5,11 @@ in the connected Julia kernel. Without an argument, it uses the word under
 the cursor. Dotted variable paths are supported, not arbitrary expressions.
 Press `v` on a variable in JuliaVars to open the same viewer.
 
+The viewer requires the default `variables = 'jetjulia'` backend. The optional
+Positron.jl backend does not implement JetJulia's `viewer_page` RPC; it can
+serve the variables pane but not this preview. Tables.jl must already be
+loaded in the kernel to recognise tables. Array previews do not require it.
+
 ## Keymaps
 
 Configure viewer mappings through `require('jet.julia').setup(opts)` (or
@@ -52,7 +57,8 @@ configured bindings and omits disabled actions. This setting does not change
 JuliaVars keymaps.
 
 Horizontal scrolling moves half a window (`zL`/`zH`). Page controls fetch
-another 100 rows from the kernel; they do nothing at the first/last page.
+up to 100 rows from the kernel. Next-page stops at the end; previous-page
+clamps to zero (and can refetch the first page).
 Normal vertical scrolling moves through the rows already loaded. Slice
 controls select `a[:, :, k]` in 3D arrays and do nothing for tables, vectors,
 or matrices. Clicking a slice tab also selects it.

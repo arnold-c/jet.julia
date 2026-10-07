@@ -1,3 +1,11 @@
+# Completion pipeline portions adapted from JuliaLang/IJulia.jl v1.34.4,
+# src/handlers.jl (complete_request):
+# https://github.com/JuliaLang/IJulia.jl/blob/v1.34.4/src/handlers.jl
+# Copyright © 2013 Steven G. Johnson, Fernando Perez, Jeff Bezanson,
+# Stefan Karpinski, Keno Fischer, and other contributors.
+# MIT License; see ../../../LICENSES/IJulia-MIT.txt.
+# Modified: table-column matches and a delegating request handler.
+#
 # Column-name completion for tables, inside indexing brackets:
 #
 #     df[!, <cursor>     df[:, :<cursor>     df[!, "<cursor>     df["<cursor>
@@ -17,7 +25,11 @@ const COLUMN_CONTEXT = Regex(
         "\\[[ \\t]*(?:([!:])[ \\t]*,[ \\t]*)?(:|\")?([\\p{L}\\p{N}_]*)\$",
 )
 
-"The value of the dotted `path` (`\"a.b\"`) in `mod`, or `nothing` if it is not defined."
+"""
+Look up a dotted property path in `mod` without evaluating expressions.
+Return `Some(value)` (including `Some(nothing)`) or `nothing` for an undefined
+root. Property access uses the latest world age and may throw.
+"""
 function lookup(mod::Module, path::AbstractString)
     head, rest = Iterators.peel(split(path, '.'))
     isdefined(mod, Symbol(head)) || return nothing
@@ -37,7 +49,11 @@ is_column_indexed(value) = istable(value) &&
     column_completion(prefix, mod) -> Union{Nothing, NamedTuple}
 
 Column completions for the code `prefix` before the cursor, or `nothing` if the
-cursor is not in a column position of a table in `mod`. The result has
+cursor is not in a supported column position of a table in `mod`. Receivers
+must be plain or dotted names; arrays/dictionaries are excluded. Supported
+forms are `df[!, ...`, `df[:, ...` and `df[\"...`. Lookup failures are ignored;
+Tables.jl interface errors may propagate to the installed handler, which
+falls back to IJulia. The result has
 `matches` (text to insert), `types` (element types) and `partial`, the text
 before the cursor that the matches replace.
 """
@@ -154,7 +170,9 @@ end
     Core.eval(sandbox, :(xs = [1, 2, 3]))
     Core.eval(sandbox, :(d = Dict(:a => 1)))
 
+    # Complete against only the sandbox bindings created for this test.
     complete(prefix) = JetJulia.column_completion(prefix, sandbox)
+    # Extract match text while preserving the no-column-context sentinel.
     matches(prefix) = (r = complete(prefix); r === nothing ? nothing : r.matches)
 
     # No prefix: symbols where possible, strings otherwise
@@ -197,6 +215,7 @@ end
     sandbox = Module(:Sandbox)
     Core.eval(sandbox, :(df = (alpha = [1, 2], beta = ["a", "b"])))
 
+    # Build a completion request with explicit cursor and protocol version.
     request(code, cursor, version = "5.3") = IJulia.Msg(
         ["id"],
         Dict("msg_id" => "m", "msg_type" => "complete_request", "version" => version),
@@ -246,6 +265,7 @@ end
         JetJulia.install_column_completion!()
         @test IJulia.handlers["complete_request"] === handler
 
+        # Build a protocol-5.3 request with the cursor at the end of code.
         request(code) = IJulia.Msg(
             ["id"],
             Dict("msg_id" => "m", "msg_type" => "complete_request", "version" => "5.3"),

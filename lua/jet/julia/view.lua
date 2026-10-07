@@ -1,3 +1,4 @@
+---Neovim grid viewer for JetJulia's viewer_page RPC (tables and 1D–3D arrays).
 local M = {}
 local PAGE_SIZE = 100
 local MAX_WIDTH = 40
@@ -14,12 +15,19 @@ local actions = {
 	{ "select_slice", "select slice tab" },
 }
 
+---Normalise an action binding; disabled actions/global keymaps return an empty list.
+---@param keymaps jet.julia.ViewerKeymaps | false
+---@param action string
+---@return string[]
 local keys_for = function(keymaps, action)
 	local keys = keymaps and keymaps[action]
 	if not keys then return {} end
 	return type(keys) == "string" and { keys } or keys
 end
 
+---Describe enabled bindings in the same order as the installed actions.
+---@param keymaps jet.julia.ViewerKeymaps | false
+---@return string
 local keymap_help = function(keymaps)
 	local parts = {}
 	for _, action in ipairs(actions) do
@@ -29,6 +37,10 @@ local keymap_help = function(keymaps)
 	return table.concat(parts, "   ")
 end
 
+---Pad/truncate a grid cell to width display cells without splitting UTF-8 characters.
+---@param text string
+---@param width integer Positive display-cell width.
+---@return string
 local fit = function(text, width)
 	if vim.fn.strdisplaywidth(text) > width then
 		local n = vim.fn.strchars(text)
@@ -40,7 +52,10 @@ local fit = function(text, width)
 	return text .. string.rep(" ", math.max(0, width - vim.fn.strdisplaywidth(text)))
 end
 
--- Keep large third axes bounded too: show tabs around the selected slice.
+---Show up to nine third-axis tabs around the selected slice.
+---@param page table Grid page with shape and slice metadata from viewer_page.
+---@return string
+---@return table[] tabs Zero-based display-cell ranges [first, last) and slice indices.
 local slice_tabs = function(page)
 	if not page.shape or #page.shape ~= 3 then return "", {} end
 	if page.slice_count == 0 then return "(no third-axis slices)", {} end
@@ -58,7 +73,12 @@ local slice_tabs = function(page)
 	return text, tabs
 end
 
--- Tables, vectors, matrices and array slices share one grid.
+---Render a shared grid with status/help/tabs, column names/types and data rows.
+---@param page table Formatted viewer_page result.
+---@param title string
+---@param help string
+---@return string[] lines
+---@return table[] tabs Mouse hit-test ranges for line three.
 local render = function(page, title, help)
 	local widths = {}
 	for i, name in ipairs(page.names) do
@@ -71,6 +91,10 @@ local render = function(page, title, help)
 	for _, label in ipairs(page.row_labels) do
 		number_width = math.max(number_width, vim.fn.strdisplaywidth(label))
 	end
+	---Format one grid row, prefixed by its row label.
+	---@param cells string[]
+	---@param label string
+	---@return string
 	local line = function(cells, label)
 		local parts = { fit(label, number_width) }
 		for i, cell in ipairs(cells) do
@@ -95,6 +119,11 @@ local render = function(page, title, help)
 	return lines, tabs
 end
 
+---Asynchronously open a scratch split for an access path using the variables comm.
+---Requires JetJulia's viewer_page RPC. Warn if the comm is not ready; RPC
+---errors are reported by the comm helper. Bindings are snapshotted on open.
+---@param kernel julia.Kernel
+---@param path string[] Global name followed by child access keys, not expressions.
 M.open = function(kernel, path)
 	local vars = kernel.bufs.vars
 	if not vars then
@@ -110,11 +139,16 @@ M.open = function(kernel, path)
 	local tabs = {}
 	offset, total, busy = 0, 0, false
 	local load
+	---Move within the real third-axis bounds and reset the row offset.
+	---@param direction integer Usually 1 or -1.
 	local change_slice = function(direction)
 		if slice and slice + direction >= slice_first and slice + direction <= slice_last then
 			load(0, slice + direction)
 		end
 	end
+	---Request one page; ignore concurrent loads and replies for a wiped buffer.
+	---@param next_offset integer Zero-based row offset.
+	---@param next_slice? integer Real third-axis index; defaults to the current slice.
 	load = function(next_offset, next_slice)
 		if busy then return end
 		busy = true
@@ -145,6 +179,7 @@ M.open = function(kernel, path)
 							next_slice = function() change_slice(1) end,
 							previous_slice = function() change_slice(-1) end,
 						}
+						---Select a clicked tab, or move the cursor on non-tab lines in this viewer.
 						handlers.select_slice = function()
 							local mouse = vim.fn.getmousepos()
 							if mouse.winid == 0 or vim.api.nvim_win_get_buf(mouse.winid) ~= buf then return end

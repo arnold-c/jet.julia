@@ -1,3 +1,12 @@
+# Completion pipeline portions adapted from JuliaLang/IJulia.jl v1.34.4,
+# src/handlers.jl (complete_request):
+# https://github.com/JuliaLang/IJulia.jl/blob/v1.34.4/src/handlers.jl
+# Copyright © 2013 Steven G. Johnson, Fernando Perez, Jeff Bezanson,
+# Stefan Karpinski, Keno Fischer, and other contributors.
+# MIT License; see ../../../LICENSES/IJulia-MIT.txt.
+# Modified: version-gated whole-buffer parse start; test reproduces the
+# upstream completion pipeline without its transport.
+#
 # Fix IJulia's completion of code that follows a multi-line string.
 #
 # IJulia's `complete_request` hands REPLCompletions only the code from

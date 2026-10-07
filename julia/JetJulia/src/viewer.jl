@@ -1,9 +1,10 @@
-# Bounded, transport-free table pages. No evaluation of arbitrary expressions:
+# Bounded, transport-free table and 1D–3D array pages. No evaluation of arbitrary expressions:
 # viewers use the same access paths as the variables pane.
 const VIEW_PAGE_SIZE = 100
 const VIEW_MAX_COLUMNS = 100
 const VIEW_CELL_LENGTH = 200
 
+"Single-line cell text with escaped control characters, capped at `VIEW_CELL_LENGTH` characters."
 function viewer_cell(value)
     text = value isa AbstractString ? String(value) : compact_string(value)
     # Keep a cell on one screen line, including strings with embedded newlines.
@@ -13,6 +14,7 @@ function viewer_cell(value)
     )
 end
 
+"Validate a zero-based nonnegative row offset and a limit in `1:VIEW_PAGE_SIZE`; throw `ArgumentError`."
 function validate_page(offset, limit)
     offset isa Integer && offset >= 0 ||
         throw(ArgumentError("offset must be a nonnegative integer"))
@@ -21,6 +23,7 @@ function validate_page(offset, limit)
     return nothing
 end
 
+"Build the shared grid dictionary; supplied rows/cells must already be bounded and formatted."
 function grid_page(
     names,
     types,
@@ -42,6 +45,15 @@ function grid_page(
     )
 end
 
+"""
+    table_page(value; offset=0, limit=VIEW_PAGE_SIZE)
+
+Page a loaded Tables.jl-compatible value by zero-based row offset. Clamp the
+offset to the row count; return formatted cells, column names/types, row
+labels and totals. Show at most `VIEW_MAX_COLUMNS` columns. Columns must
+support indexed access; unequal lengths among displayed columns throw
+`ArgumentError`. Tables.jl is never loaded on the user's behalf.
+"""
 function table_page(value; offset::Integer = 0, limit::Integer = VIEW_PAGE_SIZE)
     istable(value) ||
         throw(ArgumentError("The viewer supports tables and 1D–3D arrays only"))
@@ -68,7 +80,16 @@ function table_page(value; offset::Integer = 0, limit::Integer = VIEW_PAGE_SIZE)
     )
 end
 
-# Common page entry point: tables and arrays share the wire grid shape.
+"""
+    viewer_page(value; offset=0, limit=VIEW_PAGE_SIZE, slice=nothing)
+
+Return a bounded grid for a table or a 1D–3D array. Array rows/columns use the
+first/second axes and real axis indices as labels; a vector has one column.
+For 3D arrays, `slice` selects a real third-axis index (default: its first
+index); an empty third axis yields no rows. Array pages add shape and slice
+metadata. Invalid array dimensions/slices throw `ArgumentError`. The table
+fallback ignores `slice` and delegates to `table_page`.
+"""
 viewer_page(value; offset = 0, limit = VIEW_PAGE_SIZE, slice = nothing) = table_page(
     value;
     offset,
@@ -138,6 +159,7 @@ function viewer_page(
     return page
 end
 
+"Resolve an access path and serve JetJulia's table/array viewer RPC with validated bounds."
 function handle_request(service::Service, ::Val{:viewer_page}, params)
     offset = param(params, "offset", 0)
     limit = param(params, "limit", VIEW_PAGE_SIZE)
@@ -150,6 +172,7 @@ function handle_request(service::Service, ::Val{:viewer_page}, params)
     )
 end
 
+"Legacy table-only page RPC; resolve an access path and delegate bounds checking to `table_page`."
 function handle_request(service::Service, ::Val{:table_page}, params)
     offset = param(params, "offset", 0)
     limit = param(params, "limit", VIEW_PAGE_SIZE)
@@ -186,6 +209,7 @@ end
         data::Array{T, N}
         starts::NTuple{N, Int}
     end
+    # Delegate shape, but expose shifted axes and translate real indices back to data.
     Base.size(a::ShiftedArray) = size(a.data)
     Base.axes(a::ShiftedArray{T, N}) where {T, N} = ntuple(
         d -> a.starts[d]:(a.starts[d] + size(a, d) - 1),

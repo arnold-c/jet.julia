@@ -24,13 +24,14 @@ function publish(parent::IJulia.Msg, comm_id::AbstractString, data)
     return nothing
 end
 
+"Publish a parented `update` notification only when the service's fingerprint snapshot changes."
 function send_update(service::Service, parent::IJulia.Msg, send)
     params = update!(service)
     params === nothing || send(parent, service.comm_id, event_message("update", params))
     return nothing
 end
 
-# Errors must never escape into IJulia's event loop.
+"Reply in the latest world age, then update after clear/delete; log errors instead of escaping IJulia's loop."
 function on_comm_msg(service::Service, msg::IJulia.Msg, send)
     try
         request = get(msg.content, "data", Dict{String, Any}())
@@ -47,7 +48,14 @@ function on_comm_msg(service::Service, msg::IJulia.Msg, send)
     return nothing
 end
 
-"Start serving a freshly opened comm: reply to requests and send the initial `refresh`."
+"""
+    open_comm!(comm, open_msg, send=publish; mod=Main) -> Service
+
+Register a service and request/close handlers, then send its initial refresh.
+`send(parent, comm_id, data)` is an injectable transport; callbacks retain it.
+Closing removes the service from `SERVICES`. Opening/initial-send errors
+propagate to the caller (`IJulia.register_comm` contains them).
+"""
 function open_comm!(
     comm::IJulia.Comm,
     open_msg::IJulia.Msg,
@@ -62,7 +70,7 @@ function open_comm!(
     return service
 end
 
-# IJulia dispatches on the comm's target type, in place of `register_target`.
+"IJulia target dispatch for client-opened variables comms; initialise service and contain opening errors."
 function IJulia.register_comm(
     comm::IJulia.Comm{Symbol("positron.variables")},
     msg::IJulia.Msg,
@@ -98,9 +106,10 @@ end
 """
     start()
 
-Register the variables comm target and the post-execute hook, and improve
+Activate the post-execute hook and improve
 completion: after multi-line strings (`fix_completion!`) and for table
-columns (`install_column_completion!`). Idempotent.
+columns (`install_column_completion!`). Idempotent; returns `nothing`.
+The comm target dispatch method is defined when this source is included.
 """
 function start()
     STARTED[] && return nothing
@@ -122,6 +131,7 @@ end
 @testitem "an opened comm refreshes, replies, and updates" begin
     using IJulia
 
+    # Build a synthetic Jupyter message with a predictable parent id.
     msg(type, content) = IJulia.Msg(
         ["id"],
         Dict("msg_id" => "m-$type", "msg_type" => type),
@@ -132,6 +142,7 @@ end
     Core.eval(sandbox, :(x = 1))
 
     sent = []
+    # Capture transport calls in order for parentage and update assertions.
     send(parent, comm_id, data) = push!(sent, (parent, comm_id, data))
 
     fake_kernel = (comms = Dict{String, Any}(),)
@@ -207,6 +218,7 @@ end
         Dict("msg_id" => "m"),
         Dict("data" => Dict("id" => 1, "method" => "list")),
     )
+    # Simulate a transport failure to exercise event-loop error containment.
     boom(args...) = error("transport failed")
 
     @test JetJulia.on_comm_msg(service, request, boom) === nothing

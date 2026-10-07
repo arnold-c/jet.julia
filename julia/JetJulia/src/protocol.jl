@@ -1,3 +1,8 @@
+# Protocol reference: TidierOrg/positron-julia's variables service and
+# wurli/jet.ark's resources/positron-comms/variables*-openrpc.json.
+# This transport-free dictionary implementation differs from Positron's
+# generated request types; see ../../../docs/attribution.md.
+#
 # The `positron.variables` JSON-RPC protocol, independent of the transport.
 #
 # Requests are `Dict`s as decoded from a comm message
@@ -26,6 +31,7 @@ mutable struct Service
     version::Int
     snapshot::Dict{String, Any}
 end
+"Construct a comm service with version zero and an empty snapshot."
 Service(comm_id::AbstractString, mod::Module = Main) = Service(
     String(comm_id),
     mod,
@@ -37,12 +43,14 @@ Service(comm_id::AbstractString, mod::Module = Main) = Service(
 # Messages
 #
 
+"Build a JSON-RPC success reply, preserving the request id and result."
 result_message(id, result) = Dict{String, Any}(
     "jsonrpc" => "2.0",
     "id" => id,
     "result" => result,
 )
 
+"Build a JSON-RPC error reply from an `RpcError`."
 function error_message(id, err::RpcError)
     return Dict{String, Any}(
         "jsonrpc" => "2.0",
@@ -51,6 +59,7 @@ function error_message(id, err::RpcError)
     )
 end
 
+"Build a JSON-RPC notification (no request id) carrying event parameters."
 event_message(name::AbstractString, params) = Dict{String, Any}(
     "jsonrpc" => "2.0",
     "method" => String(name),
@@ -103,16 +112,19 @@ end
 # Requests
 #
 
+"Read a dictionary parameter, or use `default` for absent/non-dictionary parameters."
 param(params, key::AbstractString, default = nothing) = params isa AbstractDict ?
     get(params, key, default) :
     default
 
+"Require a vector `path` and stringify its keys; empty paths are rejected later by `resolve`."
 function path_param(params)
     path = param(params, "path")
     path isa AbstractVector || throw(RpcError(INVALID_PARAMS, "Missing `path`"))
     return String[string(k) for k in path]
 end
 
+"Delete a visible binding and return success; require `Base.delete_binding`, otherwise RPC method-not-found."
 function delete_global!(mod::Module, name::AbstractString)
     isdefined(Base, :delete_binding) ||
         throw(RpcError(METHOD_NOT_FOUND, "Deleting variables needs Base.delete_binding"))
@@ -122,6 +134,7 @@ function delete_global!(mod::Module, name::AbstractString)
     return true
 end
 
+"Unlimited MIME display for copying: HTML when requested and showable, otherwise plain text."
 function clipboard_text(value, format::AbstractString)
     mime = format == "text/html" && showable(MIME("text/html"), value) ?
         MIME("text/html") :
@@ -131,6 +144,17 @@ function clipboard_text(value, format::AbstractString)
     return String(take!(io))
 end
 
+"""
+    handle_request(service, Val(method), params)
+
+Dispatch a decoded RPC method, returning its result or throwing an error.
+`list` refreshes state; `inspect` and `clipboard_format` resolve access paths;
+`delete` returns deleted names and `clear` deletes visible bindings only
+(`include_hidden_objects` is currently ignored). Positron's `view` and
+`query_table_summary` are unsupported; JetJulia adds `viewer_page` and
+`table_page` in `viewer.jl`. Unknown methods throw `METHOD_NOT_FOUND`.
+The transport sends updates after mutating requests; this function does not.
+"""
 handle_request(::Service, ::Val{M}, params) where {M} = throw(RpcError(
     METHOD_NOT_FOUND,
     "Unknown method: $M",
@@ -176,6 +200,7 @@ handle_request(::Service, ::Val{:query_table_summary}, params) = throw(RpcError(
 "Methods after which the client must be told about removed variables."
 const MUTATING_METHODS = ("clear", "delete")
 
+"Preserve RPC errors, map lookup/argument errors to invalid-params, and bound other error messages."
 function rpc_error(e)
     e isa RpcError && return e
     e isa KeyError && return RpcError(INVALID_PARAMS, "Variable not found: $(e.key)")
@@ -183,7 +208,7 @@ function rpc_error(e)
     return RpcError(INTERNAL_ERROR, ellipsize(sprint(showerror, e), 500))
 end
 
-"Handle one request and return the reply message. Never throws."
+"Handle a dictionary request and convert dispatch errors to JSON-RPC replies, preserving its id."
 function respond(service::Service, request::AbstractDict)
     id = get(request, "id", nothing)
     try

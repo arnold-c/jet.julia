@@ -1,3 +1,11 @@
+# Portions adapted from TidierOrg/positron-julia, julia/Positron/src/variables.jl:
+# https://github.com/TidierOrg/positron-julia/blob/main/julia/Positron/src/variables.jl
+# Copyright (C) 2025 Posit Software, PBC. All rights reserved.
+# Licensed under the Elastic License 2.0; see ../../../LICENSES/Elastic-2.0.txt.
+# Modified for jet.julia: dictionary wire values, optional Tables.jl discovery,
+# bounded Unicode-safe displays, module-scoped lookup and snapshot diffs.
+# See ../../../docs/attribution.md for the scope of this adaptation.
+#
 # The variables model: what the `positron.variables` comm says about globals.
 #
 # Everything here is plain Julia with no IJulia dependency. Extend the
@@ -36,8 +44,10 @@ const HIDDEN_NAMES = (:Base, :Core, :Main, :ans, :include, :eval, :In, :Out)
 
 const TABLES_ID = Base.PkgId(Base.UUID("bd369af6-aec1-5ad0-b16a-f7cc5008161c"), "Tables")
 
+"Return the already-loaded Tables.jl module, or `nothing`; never load it."
 tables_module() = get(Base.loaded_modules, TABLES_ID, nothing)
 
+"Test the loaded Tables.jl interface in the latest world age; return false on errors."
 function istable(x)
     T = tables_module()
     T === nothing && return false
@@ -48,13 +58,14 @@ function istable(x)
     end
 end
 
-"`(columns, names)` of a table."
+"`(columns, names)` via loaded Tables.jl; requires a table and may propagate interface errors."
 function table_columns(x)
     T = tables_module()
     cols = Base.invokelatest(T.columns, x)
     return cols, collect(Base.invokelatest(T.columnnames, cols))
 end
 
+"Read a named Tables.jl column in the latest world age; Tables.jl must be loaded."
 table_column(cols, name) = Base.invokelatest(tables_module().getcolumn, cols, name)
 
 "`(nrow, ncol)` if `x` is a table, otherwise `nothing`."
@@ -73,10 +84,12 @@ end
 # Display helpers
 #
 
+"Return at most `n` characters, including a trailing ellipsis when truncated (`n ≥ 1`)."
 ellipsize(s::AbstractString, n::Integer = MAX_DISPLAY) = length(s) > n ?
     first(s, n - 1) * ELLIPSIS :
     String(s)
 
+"Render with compact, limited `show`, cap at `MAX_DISPLAY` characters, and contain show errors."
 function compact_string(x)
     io = IOBuffer()
     try
@@ -92,7 +105,7 @@ end
 #
 
 """
-The Positron variable kind: one of `boolean`, `bytes`, `class`, `collection`,
+Classify `x` using the Positron kind vocabulary: one of `boolean`, `bytes`, `class`, `collection`,
 `empty`, `function`, `map`, `number`, `other`, `string`, `table`.
 """
 kind(::Bool) = "boolean"
@@ -105,6 +118,7 @@ kind(::Union{Nothing, Missing}) = "empty"
 kind(::Type) = "class"
 kind(x) = istable(x) ? "table" : "other"
 
+"Short display text: table dimensions or bounded compact `show`; strings are quoted."
 function display_value(x)
     dims = table_dims(x)
     dims === nothing || return "[$(dims[1]) rows x $(dims[2]) columns] $(nameof(typeof(x)))"
@@ -132,6 +146,7 @@ function type_label(x)
     return length(s) <= MAX_TYPE_LABEL ? s : string(nameof(T))
 end
 
+"Format dimensions as a bracketed, comma-separated shape."
 shape_label(dims) = "[" * join(dims, ", ") * "]"
 
 "`Name [rows, cols]` for tables, otherwise `nothing`."
@@ -140,6 +155,7 @@ function table_label(x)
     return dims === nothing ? nothing : "$(nameof(typeof(x))) $(shape_label(dims))"
 end
 
+"Compact type label with collection/table shape where available; not the full `type_info`."
 display_type(x) = something(table_label(x), type_label(x))
 display_type(::Function) = "Function"
 display_type(x::AbstractDict) = "$(type_label(x)) $(shape_label((length(x),)))"
@@ -173,7 +189,7 @@ n_children(::Atomic) = 0
 n_children(x::AbstractDict) = length(x)
 n_children(x::AbstractArray) = ndims(x) == 0 ? 0 : size(x, 1)
 
-"Child keys and values, in display order."
+"Up to `MAX_CHILDREN` key/value pairs: columns, dictionary entries, first-axis slices or defined fields."
 function children(x)
     out = Pair{String, Any}[]
     if istable(x)
@@ -195,7 +211,12 @@ function children(x::AbstractArray)
     return [index_key(i) => element(x, i) for i in Iterators.take(axes(x, 1), MAX_CHILDREN)]
 end
 
-"The child of `x` with access key `key`; throws `KeyError` if there is none."
+"""
+Resolve a child access key: column/field name, stringified dictionary key or
+bracketed first-axis array index. Missing keys throw `KeyError`; malformed
+array indices can throw parsing errors, and undefined fields can throw
+`UndefRefError`. Stringified dictionary-key collisions select the first match.
+"""
 function child(x, key::AbstractString)
     if istable(x)
         cols, names = table_columns(x)
@@ -222,12 +243,15 @@ function child(x::AbstractArray, key::AbstractString)
     return element(x, i)
 end
 
+"Encode a first-axis array index as an access key such as `[2]`."
 index_key(i) = "[$i]"
+"Parse an integer access key, accepting optional surrounding brackets; malformed keys throw."
 parse_index(key::AbstractString) = parse(Int, strip(key, ['[', ']']))
 
 "Element `i` along the first dimension; a slice for higher-dimensional arrays."
 element(x::AbstractArray, i) = ndims(x) == 1 ? x[i] : selectdim(x, 1, i)
 
+"Approximate the reachable size with `Base.summarysize`, or zero if sizing fails."
 function byte_size(x)
     try
         return Int(Base.summarysize(x))
@@ -240,6 +264,7 @@ end
 # Variables on the wire
 #
 
+"Current Unix time rounded to integer milliseconds for `updated_time`."
 now_ms() = round(Int, time() * 1000)
 
 "Describe `value`, stored under `key`, as a `Variable` message."
@@ -266,6 +291,7 @@ end
 # Globals
 #
 
+"Whether a defined, nondeprecated binding is a user variable (not internal, reserved or a module)."
 function is_visible(mod::Module, name::Symbol)
     s = String(name)
     (startswith(s, "#") || startswith(s, "_")) && return false
@@ -277,12 +303,13 @@ end
 
 # `names(Main)` lists the globals defined at the REPL; other modules need
 # `all = true` to list non-exported names too.
+"Sorted visible bindings; inspect nonexported names outside `Main` too."
 visible_names(mod::Module = Main) = sort!(filter(
     n -> is_visible(mod, n),
     names(mod; all = mod !== Main),
 ))
 
-"All visible globals of `mod` as `Variable` messages."
+"Visible globals as `Variable` messages with one shared timestamp; skip inspection failures."
 function collect_variables(mod::Module = Main)
     time = now_ms()
     out = Dict{String, Any}[]
@@ -298,7 +325,9 @@ end
 
 """
 Resolve an access-key `path` (a global name, then child keys) to a value.
-Throws `KeyError` if any step is missing.
+An empty path throws `ArgumentError`; a missing global or child throws
+`KeyError`. Child lookup can also propagate parsing or undefined-field errors.
+Does not evaluate Julia expressions.
 """
 function resolve(path::AbstractVector{<:AbstractString}, mod::Module = Main)
     isempty(path) && throw(ArgumentError("empty path"))
@@ -311,7 +340,7 @@ function resolve(path::AbstractVector{<:AbstractString}, mod::Module = Main)
     return value
 end
 
-"`(children, total)` for inspecting `value`."
+"`(children, total)` wire values with a shared timestamp; children are capped, total is not."
 function inspect(value; time::Integer = now_ms())
     kids = [variable(key, v; time) for (key, v) in children(value)]
     return kids, n_children(value)
@@ -322,6 +351,7 @@ end
 # variables are described in full after each execution.
 #
 
+"Cheap `(type, display, length)` change fingerprint; does not detect every in-place mutation."
 function fingerprint(x)
     try
         return (string(typeof(x)), display_value(x), length_of(x))
@@ -330,6 +360,7 @@ function fingerprint(x)
     end
 end
 
+"Map visible global names to fingerprints, skipping bindings that cannot be read."
 function snapshot(mod::Module = Main)
     out = Dict{String, Any}()
     for name in visible_names(mod)

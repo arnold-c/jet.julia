@@ -1,3 +1,9 @@
+-- Kernel subclass conversion adapted from wurli/jet.ark,
+-- lua/jet/ark/ark_kernel/init.lua:
+-- https://github.com/wurli/jet.ark/blob/main/lua/jet/ark/ark_kernel/init.lua
+-- MIT License, Copyright (c) 2025 Jacob Scott. See LICENSES/jet.ark-MIT.txt.
+-- Modified: Julia detection and deferred backend bootstrap; no Ark services.
+
 local Kernel = require("jet.core.kernel")
 local config = require("jet.julia.config")
 
@@ -50,7 +56,7 @@ local start_variables = function(kernel)
 	end)
 end
 
----Modifies `kernel` in place.
+---Convert an unsubclassed jet kernel in place and install the backend-start hook.
 ---
 ---The filetype is set eagerly so the kernel can become the 'current' kernel
 ---(which enables jet's generic LSP, and with it runtime completion) as soon
@@ -66,6 +72,7 @@ JuliaKernel.from_kernel = function(kernel)
 	return out
 end
 
+---Whether the kernelspec declares Julia; missing specs do not match.
 ---@param k jet.Kernel
 ---@return boolean
 JuliaKernel.matches = function(k) return k.spec ~= nil and k.spec.language == "julia" end

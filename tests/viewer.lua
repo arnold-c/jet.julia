@@ -4,6 +4,7 @@ local config = require("jet.julia.config")
 local view = require("jet.julia.view")
 local requests = {}
 package.loaded["jet.julia.comm"] = {
+	-- Record the requested page and synchronously return a deterministic 3D grid.
 	rpc_request = function(_, _, _, params, callback)
 		table.insert(requests, params)
 		callback({
@@ -13,13 +14,21 @@ package.loaded["jet.julia.comm"] = {
 		})
 	end,
 }
+---Apply options, open the fake grid and wait for its scheduled UI update.
+---@param opts? jet.julia.Config
+---@return integer buf
 local open = function(opts)
 	config.set(opts)
 	view.open({ bufs = { vars = { comm_id = "test" } } }, { "a" })
 	assert(vim.wait(1000, function() return vim.bo.filetype == "juliaview" end), "viewer did not open")
 	return vim.api.nvim_get_current_buf()
 end
+---Return the current buffer's normal-mode mapping details for assertions.
+---@param key string
+---@return table
 local mapping = function(key) return vim.fn.maparg(key, "n", false, true) end
+---Wipe a test viewer buffer so its buffer-local maps cannot leak between cases.
+---@param buf integer
 local close = function(buf) vim.api.nvim_buf_delete(buf, { force = true }) end
 
 local buf = open()

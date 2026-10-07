@@ -2,12 +2,13 @@
 
 local M = {}
 
+---Quote a path as a Julia string literal, including literal dollar signs.
 ---@param s string
 ---@return string # A Julia string literal
 local julia_string = function(s) return (vim.json.encode(s):gsub("%$", "\\$")) end
 
 ---Julia code which loads JetJulia into the kernel's `Main` and registers its
----comm target.
+---comm dispatch, post-execute updates and completion improvements.
 ---
 ---The source is `include`d, not loaded as a package, so it works from any
 ---project and adds nothing to the user's environment. The statements are
@@ -43,8 +44,9 @@ end
 
 ---Run `code` silently and report success or failure exactly once.
 ---
----Completion is signalled by `execute_reply` or, failing that, `status: idle`
----(it is not yet verified which of these `send_lua` passes to its callback).
+---An error message is remembered until `execute_reply` or `status: idle`.
+---Whichever completion signal arrives first wins; no timeout is installed.
+---The completion callback runs in the message handler, not via vim.schedule.
 ---
 ---@param kernel jet.Kernel
 ---@param code string
@@ -53,6 +55,9 @@ M.run = function(kernel, code, on_done)
 	local done = false
 	local err ---@type string?
 
+	---Guard the completion callback against duplicate reply/idle messages.
+	---@param ok boolean
+	---@param e? string
 	local finish = function(ok, e)
 		if done then
 			return

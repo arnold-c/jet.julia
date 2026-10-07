@@ -1,6 +1,12 @@
+-- Setup guard and variables-command pattern adapted from wurli/jet.ark,
+-- lua/jet/ark/init.lua:
+-- https://github.com/wurli/jet.ark/blob/main/lua/jet/ark/init.lua
+-- MIT License, Copyright (c) 2025 Jacob Scott. See LICENSES/jet.ark-MIT.txt.
+-- Modified: keyed Julia kernel hook and Julia-specific commands/configuration.
+
 local M = {}
 
----Run `callback` with the connected Julia kernel.
+---Ask jet to resolve/select a connected Julia kernel and invoke callback.
 ---@param callback fun(k: julia.Kernel)
 local with_julia_kernel = function(callback)
 	require("jet.api").get_kernel({
@@ -9,6 +15,10 @@ local with_julia_kernel = function(callback)
 	}, callback)
 end
 
+---View a variable or dotted access-key path in a connected Julia kernel.
+---Reject empty path components; never evaluate arbitrary Julia expressions.
+---Requires JetJulia's viewer_page extension (not the Positron.jl backend).
+---@param name string
 M.open_view = function(name)
 	local path = vim.split(name, ".", { plain = true })
 	for _, part in ipairs(path) do
@@ -20,6 +30,7 @@ M.open_view = function(name)
 	with_julia_kernel(function(k) require("jet.julia.view").open(k, path) end)
 end
 
+---Open/refresh the connected Julia kernel's pane, or warn if bootstrap is not ready.
 M.open_vars = function()
 	with_julia_kernel(function(k)
 		if k.bufs.vars then
@@ -30,6 +41,9 @@ M.open_vars = function()
 	end)
 end
 
+---Configure the plugin, register commands and install the keyed kernel-init hook.
+---jet.nvim setup must have completed first. Only new, unsubclassed Julia
+---kernels are converted by the hook; existing viewers keep their keymaps.
 ---@param opts? jet.julia.Config
 M.setup = function(opts)
 	local jet = require("jet")

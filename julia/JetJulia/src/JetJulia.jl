@@ -10,7 +10,10 @@ any project: `using IJulia` resolves to the copy the kernel already loaded,
 and the module adds no dependencies to the user's environment. Packages such as
 Tables.jl are only used if the user has already loaded them.
 
-Call [`start`](@ref) once to register the comm target.
+Including the source defines the comm target method. Call [`start`](@ref)
+to activate post-execute updates and completion improvements.
+
+Source provenance and third-party licenses: `docs/attribution.md`.
 """
 module JetJulia
 
@@ -19,6 +22,7 @@ using IJulia
 # Test items live next to the code they test (see https://julia-testitems.org).
 # Test runners find `@testitem` blocks by scanning the source, so no dependency
 # on TestItems.jl is needed here; this no-op keeps the files loadable.
+"Ignore inline test-item bodies during normal loading; test runners discover them from source."
 macro testitem(args...)
     return nothing
 end

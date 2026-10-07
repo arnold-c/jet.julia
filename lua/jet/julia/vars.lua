@@ -1,10 +1,13 @@
--- Adapted from jet.ark's `ark_kernel/vars.lua` (https://github.com/wurli/jet.ark),
--- MIT License, Copyright (c) 2025 Jacob Scott.
+-- Adapted from wurli/jet.ark, lua/jet/ark/ark_kernel/vars.lua:
+-- https://github.com/wurli/jet.ark/blob/main/lua/jet/ark/ark_kernel/vars.lua
+-- MIT License, Copyright (c) 2025 Jacob Scott. See LICENSES/jet.ark-MIT.txt.
 --
 -- A client for the `positron.variables` comm. Changes from the original:
---   * no dependency on jet.ark (own RPC helper and highlight groups)
+--   * no dependency on jet.ark (local adapted RPC helper and highlight groups)
 --   * `update` events replace existing variables instead of duplicating them
 --   * every keymap is buffer-local; display strings are single-line
+--   * client-side exclusions, window-relative columns and JuliaView integration
+-- See docs/attribution.md for upstream references.
 
 local buf = require("jet.core.kernel.buf")
 local rpc = require("jet.julia.comm").rpc_request
@@ -37,6 +40,7 @@ Vars.__index = Vars ---@private
 
 local TARGET = "positron.variables"
 
+---Create a session-scoped pane, open its comm and install local maps/resize redraws.
 ---@param kernel julia.Kernel
 ---@return julia.Vars
 Vars.init = function(kernel)
@@ -81,6 +85,7 @@ end
 -- Comm
 ----------------------------------------------------------------------------
 
+---Open positron.variables and route refresh/update notifications to the pane.
 ---@return string # Comm id
 function Vars:start_comm()
 	local comm_id = self.kernel:comm_open(TARGET, {}, {
@@ -96,6 +101,8 @@ function Vars:start_comm()
 	return comm_id
 end
 
+---Replace the full tree, count and version from a backend refresh, then redraw.
+---@param params table Refresh payload: variables, length and version.
 function Vars:on_refresh(params)
 	self.length = params.length
 	self.version = params.version
@@ -103,6 +110,9 @@ function Vars:on_refresh(params)
 	self:redraw()
 end
 
+---Apply removals/assignments, reinspect expanded roots and redraw; length is unchanged.
+---Unevaluated entries in the event are not displayed.
+---@param params table Update payload: version, removed and assigned.
 function Vars:on_update(params)
 	self.version = params.version
 	for _, key in ipairs(params.removed or {}) do
@@ -132,6 +142,7 @@ function Vars:upsert(var)
 	return false
 end
 
+---Remove a cached top-level variable by access key; do not request deletion or redraw.
 ---@param key string
 function Vars:rm(key)
 	for i, var in ipairs(self.vars) do
@@ -142,6 +153,7 @@ function Vars:rm(key)
 	end
 end
 
+---Fetch a fresh top-level list; callback runs after cache replacement, without automatic redraw.
 ---@param cb? fun()
 function Vars:list(cb)
 	rpc(self.kernel, self.comm_id, "list", nil, function(res)
@@ -154,11 +166,14 @@ function Vars:list(cb)
 	end)
 end
 
+---Request clearing the backend workspace (hidden objects included unless false).
+---JetJulia currently ignores this flag and deletes visible bindings only.
 ---@param hidden? boolean
 function Vars:clear(hidden)
 	rpc(self.kernel, self.comm_id, "clear", { include_hidden_objects = hidden ~= false })
 end
 
+---Delete top-level names remotely, remove successfully deleted cache entries and redraw.
 ---@param names string | string[]
 function Vars:delete(names)
 	names = type(names) == "string" and { names } or names
@@ -170,6 +185,7 @@ function Vars:delete(names)
 	end)
 end
 
+---Fetch children asynchronously, cache them and expand/redraw if the path still exists.
 ---@param path string[]
 function Vars:inspect(path)
 	assert(#path > 0)
@@ -183,6 +199,7 @@ function Vars:inspect(path)
 	end)
 end
 
+---Request unlimited clipboard text/HTML and pass the returned content to cb.
 ---@param path string[]
 ---@param format? "text/plain" | "text/html"
 ---@param cb fun(text: string)
@@ -197,6 +214,7 @@ end
 -- Tree
 ----------------------------------------------------------------------------
 
+---Resolve an access path in the cached tree only; missing/unfetched children return nil.
 ---@param path string[]
 ---@return julia.var?
 function Vars:get_var(path)
@@ -218,6 +236,7 @@ function Vars:get_var(path)
 	return var
 end
 
+---Collapse a cached node without discarding its fetched children, then redraw.
 ---@param path string[]
 function Vars:collapse(path)
 	local var = self:get_var(path)
@@ -227,6 +246,7 @@ function Vars:collapse(path)
 	end
 end
 
+---Expand a cached node, reusing children when present or requesting them when inspectable.
 ---@param path string[]
 function Vars:expand(path)
 	local var = self:get_var(path)
@@ -245,6 +265,8 @@ end
 -- UI
 ----------------------------------------------------------------------------
 
+---Open the secondary pane with wrapping disabled and refresh its list asynchronously.
+---@return integer win Window handle returned by jet's buffer abstraction.
 function Vars:open()
 	local win = buf.open(self, nil)
 	-- Columns are sized to the window; never wrap
@@ -262,7 +284,12 @@ function Vars:current_var()
 	end
 end
 
+---Install buffer-local viewing, expansion, navigation, copying and deletion bindings.
 function Vars:set_keymaps()
+	---Install one silent mapping (or mode list) on this pane only.
+	---@param modes string | string[]
+	---@param lhs string
+	---@param fn string | function
 	local map = function(modes, lhs, fn) vim.keymap.set(modes, lhs, fn, { buffer = self.buf, silent = true }) end
 
 	map("n", "q", "<cmd>q<cr>")
@@ -291,7 +318,8 @@ function Vars:set_keymaps()
 		end
 	end)
 
-	---@param direction integer
+	---Move to the next/previous top-level variable, skipping headings and children.
+	---@param direction integer 1 or -1.
 	local next_var = function(direction)
 		for i = vim.fn.line(".") + direction, direction > 0 and #self.vars_flat or 1, direction do
 			local var = self.vars_flat[i]
@@ -341,6 +369,7 @@ function Vars:set_keymaps()
 	map("n", "X", function() self:clear(true) end)
 end
 
+---Replace buffer lines and session-namespace highlights from the current cached tree.
 function Vars:redraw()
 	local lines, extmarks = self:render()
 	vim.bo[self.buf].modifiable = true
@@ -381,13 +410,15 @@ end
 
 local CATEGORY_ORDER = { "DATA", "FUNCTIONS", "CLASSES", "VALUES" }
 
+---Collapse CR/LF runs to spaces for single-line pane text.
 ---@param s string
 ---@return string
 local single_line = function(s) return (tostring(s):gsub("[\r\n]+", " ")) end
 
+---Copy a node without children, attach its full access path and measure sanitised text.
 ---@param var julia.var
----@param path string[]
----@param level integer
+---@param path string[] Parent path.
+---@param level integer Zero-based depth.
 ---@return julia.flat_var
 local flatten = function(var, path, level)
 	local flat = {}
@@ -418,7 +449,8 @@ local is_excluded = function(var)
 	return vim.tbl_contains(exclude or {}, var.access_key)
 end
 
----Pad or truncate `s` to exactly `width` display cells.
+---Pad or truncate `s` using display width and a character-count truncation.
+---Wide glyphs can exceed width after truncation; this is not an exact cell fit.
 ---@param s string
 ---@param width integer
 ---@param align? "left" | "right"
@@ -455,6 +487,7 @@ function Vars:flatten()
 
 	local out = {}
 
+	---Append nodes depth-first; descend only into expanded nodes with cached children.
 	---@param vars julia.var[]
 	---@param path string[]
 	---@param level integer
@@ -479,6 +512,9 @@ function Vars:flatten()
 	return out
 end
 
+---Rebuild vars_flat and produce pane lines plus per-line byte-column highlight extmarks.
+---Name/type widths are capped relative to the window; minimum column widths
+---can still overflow very narrow windows.
 ---@return string[]
 ---@return julia.extmark_args[][]
 function Vars:render()
@@ -489,6 +525,7 @@ function Vars:render()
 		return { text }, { { { 0, { hl_group = "Comment", end_col = #text } } } }
 	end
 
+	---Maximum measured width over variable rows (ignore headings and separators).
 	---@param f fun(v: julia.flat_var): integer
 	local var_max = function(f)
 		local widths = vim.tbl_map(function(var) return type(var) == "table" and f(var) or 0 end, self.vars_flat)
@@ -499,8 +536,12 @@ function Vars:render()
 	local win = w and w:winnr(self.buf)
 	local win_width = win and vim.api.nvim_win_get_width(win) or math.floor(vim.o.columns / 2)
 
-	-- Cap the name and type columns so the line always fits the window; the
-	-- value column takes what is left. Overlong text is truncated, not wrapped.
+	-- Cap the name/type columns; the value gets the remaining width, subject
+	-- to minimum widths. Narrow windows and wide glyphs can still overflow.
+	---Cap a desired column width at a window fraction, with a minimum cap.
+	---@param max integer
+	---@param frac number
+	---@return integer
 	local cap = function(max, frac) return math.min(max, math.max(MIN_COL, math.floor(win_width * frac))) end
 	local name_w = cap(var_max(function(v) return v.display_name_w + v.indent end), NAME_MAX_FRAC)
 	local type_w = cap(var_max(function(v) return v.display_type_w end), TYPE_MAX_FRAC)
