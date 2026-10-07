@@ -135,6 +135,28 @@ Then use:
 Paths identify existing globals and children; the viewer does not evaluate expressions such as `filter(...)` or `a[:, :, 2]`.
 For a 3D array, open `:JuliaView a` and use its slice tabs instead.
 
+## Plots and external displays
+
+jet.julia does not capture plots.
+IJulia sends the value of a cell's final expression straight to Jet as an `execute_result`, which jet.nvim shows in its plot viewer.
+That result **bypasses Julia's display stack**, so displays registered with `pushdisplay`, such as [BrowserPlots.jl](https://github.com/arnold-c/BrowserPlots.jl)'s `browse()`, never receive it.
+This differs from R with httpgd, where `hgd()` replaces the graphics device.
+
+To send a plot to an external display, call `display` explicitly and suppress the cell result with a trailing `;`:
+
+```julia
+using BrowserPlots, CairoMakie
+browse(; port = 8008, silent = true)
+
+fig = lines(1:10, (1:10) .^ 2)
+display(fig);
+```
+
+`display` uses the most recently pushed display that can show the value, so the plot goes to the browser.
+The `;` stops IJulia sending the figure to Jet's viewer as well.
+Without `display`, the figure appears only in Jet's viewer.
+Without the `;`, it appears in both.
+
 ## Configuration
 
 Pass plugin options to `require("jet.julia").setup(opts)` or lazy.nvim's `opts` field.
