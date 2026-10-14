@@ -45,7 +45,7 @@ IJulia registers a kernelspec during installation.
 If you move or update the Julia executable, run `Pkg.build("IJulia")` from a Julia REPL, not from inside an IJulia kernel.
 See [IJulia's installation guide](https://julialang.github.io/IJulia.jl/stable/manual/installation/) for custom kernels and project environments.
 
-> ![NOTE]
+> [!NOTE]
 > You should make sure that you have run `Pkg.add("IJulia")` from a Julia REPL that uses your project's Julia version before you try to connect to it from within NeoVim, otherwise it will likely time-out from pre-compilation issues.If you just install IJulia without activating a project then you should only need to do this step once. Creating project-specific kernels will require this to be done for each project.
 
 There is no separate JetJulia package-install step.
