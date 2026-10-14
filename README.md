@@ -1,5 +1,7 @@
 # jet.julia
 
+[<img src="https://img.youtube.com/vi/dqmTa9RZaKg/hqdefault.jpg"/>](https://www.youtube.com/embed/dqmTa9RZaKg)
+
 Julia support for [jet.nvim](https://github.com/wurli/jet.nvim), using an [IJulia](https://github.com/JuliaLang/IJulia.jl) kernel and the bundled **JetJulia** service.
 
 - Browse live variables, expand their children, and copy values.
